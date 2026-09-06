@@ -59,13 +59,13 @@ int main(int argc, char **argv)
             continue;
         }
 
-        int *value = !std::strcmp(argv[i], "--M")   ? &M
-                     : !std::strcmp(argv[i], "--N") ? &N
-                     : !std::strcmp(argv[i], "--K") ? &K
+        int *value = !std::strcmp(argv[i], "--M")    ? &M
+                     : !std::strcmp(argv[i], "--N")  ? &N
+                     : !std::strcmp(argv[i], "--K")  ? &K
                      : !std::strcmp(argv[i], "--BM") ? &BM
                      : !std::strcmp(argv[i], "--BN") ? &BN
                      : !std::strcmp(argv[i], "--BK") ? &BK
-                                                       : nullptr;
+                                                     : nullptr;
         if (value == nullptr || !parse_positive(argv[i + 1], *value))
             return usage(argv[0]);
     }
@@ -107,7 +107,7 @@ int main(int argc, char **argv)
     check(cudaGetLastError());
     check(cudaDeviceSynchronize());
 
-    constexpr int runs = 10;
+    constexpr int runs = 3;
     cudaEvent_t start, stop;
     check(cudaEventCreate(&start));
     check(cudaEventCreate(&stop));
