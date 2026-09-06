@@ -2,12 +2,10 @@
 
 #include "../configs.hpp"
 
-#include <tuple>
-#include <utility>
-
 #include <cstdio>
 #include <cstdlib>
 #include <tuple>
+#include <utility>
 
 template <typename Config>
 __global__ void smem_tiled_gemm(const float *A, const float *B, float *C, int M, int N, int K)
@@ -61,11 +59,29 @@ static void launch(const float *A, const float *B, float *C, int M, int N, int K
     smem_tiled_gemm<Config><<<grid, block>>>(A, B, C, M, N, K);
 }
 
-using SmemConfigs = std::tuple<
-    SmemConfig<16, 16, 16>,
-    SmemConfig<32, 8, 16>,
-    SmemConfig<8, 32, 16>,
-    SmemConfig<32, 32, 8>>;
+// for fixed BM, produces all combinations of BM,BN,BK
+template <int BM, int... BNs, int... BKs>
+consteval auto configsForBM(std::integer_sequence<int, BNs...>, std::integer_sequence<int, BKs...>)
+{
+    return std::tuple_cat(
+        []<int BN>(std::integral_constant<int, BN>) {
+            return std::tuple<SmemConfig<BM, BN, BKs>...>{};
+        }(std::integral_constant<int, BNs>{})...);
+}
+
+template <int... BMs, int... BNs, int... BKs>
+consteval auto makeSmemConfigs(std::integer_sequence<int, BMs...>, std::integer_sequence<int, BNs...> bns,
+                               std::integer_sequence<int, BKs...> bks)
+{
+    return std::tuple_cat(configsForBM<BMs>(bns, bks)...);
+}
+
+using SmemConfigs = decltype(makeSmemConfigs(
+    std::integer_sequence<int, 8, 16, 32>{},
+    std::integer_sequence<int, 8, 16, 32>{},
+    std::integer_sequence<int, 4, 8, 16, 32>{}));
+
+static_assert(std::tuple_size_v<SmemConfigs> == 36);
 
 void launchSmemTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK)
 {
