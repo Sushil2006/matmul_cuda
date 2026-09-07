@@ -5,7 +5,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <tuple>
-#include <utility>
 
 template <typename Config>
 __global__ void smem_tiled_gemm(const float *A, const float *B, float *C, int M, int N, int K)
@@ -59,29 +58,18 @@ static void launch(const float *A, const float *B, float *C, int M, int N, int K
     smem_tiled_gemm<Config><<<grid, block>>>(A, B, C, M, N, K);
 }
 
-// for fixed BM, produces all combinations of BM,BN,BK
-template <int BM, int... BNs, int... BKs>
-consteval auto configsForBM(std::integer_sequence<int, BNs...>, std::integer_sequence<int, BKs...>)
-{
-    return std::tuple_cat(
-        []<int BN>(std::integral_constant<int, BN>) {
-            return std::tuple<SmemConfig<BM, BN, BKs>...>{};
-        }(std::integral_constant<int, BNs>{})...);
-}
-
-template <int... BMs, int... BNs, int... BKs>
-consteval auto makeSmemConfigs(std::integer_sequence<int, BMs...>, std::integer_sequence<int, BNs...> bns,
-                               std::integer_sequence<int, BKs...> bks)
-{
-    return std::tuple_cat(configsForBM<BMs>(bns, bks)...);
-}
-
-using SmemConfigs = decltype(makeSmemConfigs(
-    std::integer_sequence<int, 8, 16, 32>{},
-    std::integer_sequence<int, 8, 16, 32>{},
-    std::integer_sequence<int, 4, 8, 16, 32>{}));
-
-static_assert(std::tuple_size_v<SmemConfigs> == 36);
+// A small set that varies BK, output-tile shape, and thread-block size.
+using C0 = SmemConfig<16, 16, 8>;
+using C1 = SmemConfig<16, 16, 16>;
+using C2 = SmemConfig<16, 16, 32>;
+using C3 = SmemConfig<32, 8, 16>;
+using C4 = SmemConfig<8, 32, 16>;
+using C5 = SmemConfig<32, 32, 8>;
+using C6 = SmemConfig<32, 32, 16>;
+using C7 = SmemConfig<32, 32, 32>;
+using C8 = SmemConfig<32, 32, 64>;
+using C9 = SmemConfig<32, 32, 128>;
+using SmemConfigs = std::tuple<C0, C1, C2, C3, C4, C5, C6, C7, C8, C9>;
 
 void launchSmemTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK)
 {
