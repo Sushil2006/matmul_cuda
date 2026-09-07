@@ -11,6 +11,7 @@
 
 void launch_naive(const float *A, const float *B, float *C, int M, int N, int K);
 void launchSmemTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK);
+void launchBlockTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int TM, int TN);
 
 static void check(cudaError_t error)
 {
@@ -41,13 +42,14 @@ static bool parse_positive(const char *text, int &value)
 static int usage(const char *program)
 {
     std::cerr << "usage: " << program << " --M <positive> --N <positive> --K <positive>"
-              << " [--kernel naive|smem] [--BM <positive> --BN <positive> --BK <positive>]\n";
+              << " [--kernel naive|smem|block] [--BM <positive> --BN <positive> --BK <positive>]"
+              << " [--TM <positive> --TN <positive>]\n";
     return 1;
 }
 
 int main(int argc, char **argv)
 {
-    int M = 0, N = 0, K = 0, BM = 0, BN = 0, BK = 0;
+    int M = 0, N = 0, K = 0, BM = 0, BN = 0, BK = 0, TM = 0, TN = 0;
     const char *kernel = "naive";
     for (int i = 1; i < argc; i += 2)
     {
@@ -65,13 +67,17 @@ int main(int argc, char **argv)
                      : !std::strcmp(argv[i], "--BM") ? &BM
                      : !std::strcmp(argv[i], "--BN") ? &BN
                      : !std::strcmp(argv[i], "--BK") ? &BK
+                     : !std::strcmp(argv[i], "--TM") ? &TM
+                     : !std::strcmp(argv[i], "--TN") ? &TN
                                                      : nullptr;
         if (value == nullptr || !parse_positive(argv[i + 1], *value))
             return usage(argv[0]);
     }
     const bool use_naive = !std::strcmp(kernel, "naive");
     const bool use_smem = !std::strcmp(kernel, "smem");
-    if (M == 0 || N == 0 || K == 0 || (!use_naive && !use_smem) || (use_smem && (BM == 0 || BN == 0 || BK == 0)))
+    const bool use_block = !std::strcmp(kernel, "block");
+    if (M == 0 || N == 0 || K == 0 || (!use_naive && !use_smem && !use_block) ||
+        ((use_smem || use_block) && (BM == 0 || BN == 0 || BK == 0)) || (use_block && (TM == 0 || TN == 0)))
         return usage(argv[0]);
 
     const size_t a_count = static_cast<size_t>(M) * K;
@@ -102,6 +108,8 @@ int main(int argc, char **argv)
     // Warm up before timing the repeated kernel launches.
     if (use_smem)
         launchSmemTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK);
+    else if (use_block)
+        launchBlockTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
     else
         launch_naive(d_A, d_B, d_C, M, N, K);
     check(cudaGetLastError());
@@ -116,6 +124,8 @@ int main(int argc, char **argv)
     {
         if (use_smem)
             launchSmemTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK);
+        else if (use_block)
+            launchBlockTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
         else
             launch_naive(d_A, d_B, d_C, M, N, K);
     }
@@ -151,7 +161,8 @@ int main(int argc, char **argv)
     const double time_ms = total_ms / runs;
     const double tflops = 2.0 * M * N * K / (time_ms * 1.0e9);
     std::cout << "kernel=" << kernel << " M=" << M << " N=" << N << " K=" << K
-              << " BM=" << BM << " BN=" << BN << " BK=" << BK << " time_ms=" << time_ms << " tflops=" << tflops
+              << " BM=" << BM << " BN=" << BN << " BK=" << BK << " TM=" << TM << " TN=" << TN
+              << " time_ms=" << time_ms << " tflops=" << tflops
               << " max_abs_error=" << max_error << " status=" << (correct ? "PASS" : "FAIL") << '\n';
 
     check(cudaEventDestroy(start));

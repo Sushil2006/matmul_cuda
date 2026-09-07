@@ -93,11 +93,19 @@ static void launch(const float *A, const float *B, float *C, int M, int N, int K
     block_tiled_gemm<Config><<<grid, block>>>(A, B, C, M, N, K);
 }
 
-using BlockTiledConfigs = std::tuple<
-    BlockTiledConfig<64, 64, 8, 4, 4>,
-    BlockTiledConfig<64, 32, 8, 4, 4>,
-    BlockTiledConfig<32, 64, 8, 4, 4>,
-    BlockTiledConfig<32, 32, 8, 2, 2>>;
+// Vary BK, thread-tile shape, and output-tile shape without a full sweep.
+using C0 = BlockTiledConfig<64, 64, 8, 4, 4>;
+using C1 = BlockTiledConfig<64, 64, 16, 4, 4>;
+using C2 = BlockTiledConfig<64, 64, 32, 4, 4>;
+using C3 = BlockTiledConfig<64, 64, 8, 8, 4>;
+using C4 = BlockTiledConfig<64, 64, 8, 4, 8>;
+using C5 = BlockTiledConfig<128, 64, 8, 8, 4>;
+using C6 = BlockTiledConfig<64, 128, 8, 4, 8>;
+using C7 = BlockTiledConfig<64, 64, 8, 1, 16>;
+using C8 = BlockTiledConfig<64, 64, 8, 16, 1>;
+using C9 = BlockTiledConfig<64, 64, 64, 4, 4>;
+using C10 = BlockTiledConfig<128, 128, 32, 8, 8>;
+using BlockTiledConfigs = std::tuple<C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10>;
 
 void launchBlockTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int TM, int TN)
 {
