@@ -143,7 +143,11 @@ using C6 = WarpTiledConfig<64, 128, 16, 32, 64, 2, 8, 4>;
 using C7 = WarpTiledConfig<128, 64, 16, 64, 32, 2, 8, 4>;
 using C8 = WarpTiledConfig<64, 64, 16, 32, 32, 2, 4, 4>;
 using C9 = WarpTiledConfig<128, 128, 32, 64, 64, 2, 8, 8>;
-using WarpTiledConfigs = std::tuple<C0, C1, C2, C3, C4, C5, C6, C7, C8, C9>;
+using C10 = WarpTiledConfig<64, 64, 16, 64, 64, 2, 8, 4>;
+using C11 = WarpTiledConfig<128, 64, 16, 64, 64, 2, 8, 4>;
+using C12 = WarpTiledConfig<256, 64, 16, 64, 64, 2, 8, 4>;
+using C13 = WarpTiledConfig<256, 128, 16, 64, 64, 2, 8, 4>;
+using WarpTiledConfigs = std::tuple<C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13>;
 
 void launchWarpTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int WM, int WN, int WNITER, int TM, int TN)
 {
