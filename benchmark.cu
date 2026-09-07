@@ -14,6 +14,7 @@ void launchSmemTiled(const float *A, const float *B, float *C, int M, int N, int
 void launchBlockTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int TM, int TN);
 void launchBankConflictFree(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int TM, int TN);
 void launchVectorized(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int TM, int TN);
+void launchWarpTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int WM, int WN, int WNITER, int TM, int TN);
 
 static void check(cudaError_t error)
 {
@@ -44,14 +45,14 @@ static bool parse_positive(const char *text, int &value)
 static int usage(const char *program)
 {
     std::cerr << "usage: " << program << " --M <positive> --N <positive> --K <positive>"
-              << " [--kernel naive|smem|block|bank-free|vectorized] [--BM <positive> --BN <positive> --BK <positive>]"
-              << " [--TM <positive> --TN <positive>] [--runs <positive>] [--no-verify]\n";
+              << " [--kernel naive|smem|block|bank-free|vectorized|warp] [--BM <positive> --BN <positive> --BK <positive>]"
+              << " [--WM <positive> --WN <positive> --WNITER <positive>] [--TM <positive> --TN <positive>] [--runs <positive>] [--no-verify]\n";
     return 1;
 }
 
 int main(int argc, char **argv)
 {
-    int M = 0, N = 0, K = 0, BM = 0, BN = 0, BK = 0, TM = 0, TN = 0, runs = 3;
+    int M = 0, N = 0, K = 0, BM = 0, BN = 0, BK = 0, WM = 0, WN = 0, WNITER = 0, TM = 0, TN = 0, runs = 3;
     const char *kernel = "naive";
     bool verify = true;
     for (int i = 1; i < argc;)
@@ -78,6 +79,9 @@ int main(int argc, char **argv)
                      : !std::strcmp(argv[i], "--BM") ? &BM
                      : !std::strcmp(argv[i], "--BN") ? &BN
                      : !std::strcmp(argv[i], "--BK") ? &BK
+                     : !std::strcmp(argv[i], "--WM") ? &WM
+                     : !std::strcmp(argv[i], "--WN") ? &WN
+                     : !std::strcmp(argv[i], "--WNITER") ? &WNITER
                      : !std::strcmp(argv[i], "--TM") ? &TM
                      : !std::strcmp(argv[i], "--TN") ? &TN
                      : !std::strcmp(argv[i], "--runs") ? &runs
@@ -91,9 +95,11 @@ int main(int argc, char **argv)
     const bool use_block = !std::strcmp(kernel, "block");
     const bool use_bank_free = !std::strcmp(kernel, "bank-free");
     const bool use_vectorized = !std::strcmp(kernel, "vectorized");
+    const bool use_warp = !std::strcmp(kernel, "warp");
     const bool use_thread_tiled = use_block || use_bank_free || use_vectorized;
-    if (M == 0 || N == 0 || K == 0 || (!use_naive && !use_smem && !use_thread_tiled) ||
-        ((use_smem || use_thread_tiled) && (BM == 0 || BN == 0 || BK == 0)) || (use_thread_tiled && (TM == 0 || TN == 0)))
+    if (M == 0 || N == 0 || K == 0 || (!use_naive && !use_smem && !use_thread_tiled && !use_warp) ||
+        ((use_smem || use_thread_tiled || use_warp) && (BM == 0 || BN == 0 || BK == 0)) ||
+        ((use_thread_tiled || use_warp) && (TM == 0 || TN == 0)) || (use_warp && (WM == 0 || WN == 0 || WNITER == 0)))
         return usage(argv[0]);
 
     const size_t a_count = static_cast<size_t>(M) * K;
@@ -130,6 +136,8 @@ int main(int argc, char **argv)
         launchBankConflictFree(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
     else if (use_vectorized)
         launchVectorized(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
+    else if (use_warp)
+        launchWarpTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK, WM, WN, WNITER, TM, TN);
     else
         launch_naive(d_A, d_B, d_C, M, N, K);
     check(cudaGetLastError());
@@ -149,6 +157,8 @@ int main(int argc, char **argv)
             launchBankConflictFree(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
         else if (use_vectorized)
             launchVectorized(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
+        else if (use_warp)
+            launchWarpTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK, WM, WN, WNITER, TM, TN);
         else
             launch_naive(d_A, d_B, d_C, M, N, K);
     }
@@ -188,7 +198,8 @@ int main(int argc, char **argv)
     const double time_ms = total_ms / runs;
     const double tflops = 2.0 * M * N * K / (time_ms * 1.0e9);
     std::cout << "kernel=" << kernel << " M=" << M << " N=" << N << " K=" << K
-              << " BM=" << BM << " BN=" << BN << " BK=" << BK << " TM=" << TM << " TN=" << TN
+              << " BM=" << BM << " BN=" << BN << " BK=" << BK << " WM=" << WM << " WN=" << WN << " WNITER=" << WNITER
+              << " TM=" << TM << " TN=" << TN
               << " runs=" << runs << " time_ms=" << time_ms << " tflops=" << tflops
               << " max_abs_error=" << max_error << " status=" << (verify ? (correct ? "PASS" : "FAIL") : "SKIPPED") << '\n';
 

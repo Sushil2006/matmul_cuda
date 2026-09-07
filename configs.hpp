@@ -17,6 +17,14 @@ struct BlockTiledConfig : SmemConfig<BM_, BN_, BK_>
     static constexpr int TN = TN_;
 };
 
+template <int BM_, int BN_, int BK_, int WM_, int WN_, int WNITER_, int TM_, int TN_>
+struct WarpTiledConfig : BlockTiledConfig<BM_, BN_, BK_, TM_, TN_>
+{
+    static constexpr int WM = WM_;
+    static constexpr int WN = WN_;
+    static constexpr int WNITER = WNITER_;
+};
+
 template <typename TryLaunch, typename Head, typename... Tail>
 bool dispatchConfig(std::tuple<Head, Tail...>, TryLaunch &tryLaunch)
 {
