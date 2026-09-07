@@ -1,4 +1,4 @@
-# CUDA GEMM optimization study
+# Programming AI Accelerators Assignment 1 - CUDA GEMM
 
 This project develops a row-major FP32 matrix-multiplication kernel from a naive CUDA implementation to a shared-memory, register-tiled, bank-aware, vectorized, warp-tiled version.
 
