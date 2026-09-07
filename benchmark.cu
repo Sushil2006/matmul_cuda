@@ -45,7 +45,7 @@ static bool parse_positive(const char *text, int &value)
 static int usage(const char *program)
 {
     std::cerr << "usage: " << program << " --M <positive> --N <positive> --K <positive>"
-              << " [--kernel naive|smem|block|bank-free|vectorized|warp] [--BM <positive> --BN <positive> --BK <positive>]"
+              << " [--kernel naive|smem|block|bank-free|vectorized|warp|cublas] [--BM <positive> --BN <positive> --BK <positive>]"
               << " [--WM <positive> --WN <positive> --WNITER <positive>] [--TM <positive> --TN <positive>] [--runs <positive>] [--no-verify]\n";
     return 1;
 }
@@ -96,8 +96,9 @@ int main(int argc, char **argv)
     const bool use_bank_free = !std::strcmp(kernel, "bank-free");
     const bool use_vectorized = !std::strcmp(kernel, "vectorized");
     const bool use_warp = !std::strcmp(kernel, "warp");
+    const bool use_cublas = !std::strcmp(kernel, "cublas");
     const bool use_thread_tiled = use_block || use_bank_free || use_vectorized;
-    if (M == 0 || N == 0 || K == 0 || (!use_naive && !use_smem && !use_thread_tiled && !use_warp) ||
+    if (M == 0 || N == 0 || K == 0 || (!use_naive && !use_smem && !use_thread_tiled && !use_warp && !use_cublas) ||
         ((use_smem || use_thread_tiled || use_warp) && (BM == 0 || BN == 0 || BK == 0)) ||
         ((use_thread_tiled || use_warp) && (TM == 0 || TN == 0)) || (use_warp && (WM == 0 || WN == 0 || WNITER == 0)))
         return usage(argv[0]);
@@ -127,6 +128,21 @@ int main(int argc, char **argv)
     check(cudaMemcpy(d_A, A.data(), a_count * sizeof(float), cudaMemcpyHostToDevice));
     check(cudaMemcpy(d_B, B.data(), b_count * sizeof(float), cudaMemcpyHostToDevice));
 
+    cublasHandle_t cublas = nullptr;
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
+    if (use_cublas || verify)
+    {
+        check(cublasCreate(&cublas));
+        check(cublasSetMathMode(cublas, CUBLAS_PEDANTIC_MATH));
+    }
+
+    auto launch_cublas = [&](float *output)
+    {
+        // cuBLAS is column-major: C^T = B^T * A^T matches row-major C = A * B.
+        check(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, d_B, N, d_A, K, &beta, output, N));
+    };
+
     // Warm up before timing the repeated kernel launches.
     if (use_smem)
         launchSmemTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK);
@@ -138,6 +154,8 @@ int main(int argc, char **argv)
         launchVectorized(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
     else if (use_warp)
         launchWarpTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK, WM, WN, WNITER, TM, TN);
+    else if (use_cublas)
+        launch_cublas(d_C);
     else
         launch_naive(d_A, d_B, d_C, M, N, K);
     check(cudaGetLastError());
@@ -159,6 +177,8 @@ int main(int argc, char **argv)
             launchVectorized(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
         else if (use_warp)
             launchWarpTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK, WM, WN, WNITER, TM, TN);
+        else if (use_cublas)
+            launch_cublas(d_C);
         else
             launch_naive(d_A, d_B, d_C, M, N, K);
     }
@@ -173,14 +193,7 @@ int main(int argc, char **argv)
     bool correct = true;
     if (verify)
     {
-        cublasHandle_t cublas;
-        check(cublasCreate(&cublas));
-        check(cublasSetMathMode(cublas, CUBLAS_PEDANTIC_MATH));
-        const float alpha = 1.0f;
-        const float beta = 0.0f;
-
-        // cuBLAS is column-major: C^T = B^T * A^T matches our row-major C = A * B.
-        check(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, d_B, N, d_A, K, &beta, d_reference, N));
+        launch_cublas(d_reference);
         check(cudaMemcpy(C.data(), d_C, c_count * sizeof(float), cudaMemcpyDeviceToHost));
         check(cudaMemcpy(reference.data(), d_reference, c_count * sizeof(float), cudaMemcpyDeviceToHost));
 
@@ -192,7 +205,6 @@ int main(int argc, char **argv)
                 max_error = error;
             correct &= error <= 1e-3f * std::fmax(1.0f, std::fabs(reference[index]));
         }
-        check(cublasDestroy(cublas));
     }
 
     const double time_ms = total_ms / runs;
@@ -209,5 +221,7 @@ int main(int argc, char **argv)
     check(cudaFree(d_B));
     check(cudaFree(d_C));
     check(cudaFree(d_reference));
+    if (cublas != nullptr)
+        check(cublasDestroy(cublas));
     return correct ? 0 : 1;
 }
