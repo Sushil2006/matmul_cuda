@@ -13,6 +13,7 @@ void launch_naive(const float *A, const float *B, float *C, int M, int N, int K)
 void launchSmemTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK);
 void launchBlockTiled(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int TM, int TN);
 void launchBankConflictFree(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int TM, int TN);
+void launchVectorized(const float *A, const float *B, float *C, int M, int N, int K, int BM, int BN, int BK, int TM, int TN);
 
 static void check(cudaError_t error)
 {
@@ -43,7 +44,7 @@ static bool parse_positive(const char *text, int &value)
 static int usage(const char *program)
 {
     std::cerr << "usage: " << program << " --M <positive> --N <positive> --K <positive>"
-              << " [--kernel naive|smem|block|bank-free] [--BM <positive> --BN <positive> --BK <positive>]"
+              << " [--kernel naive|smem|block|bank-free|vectorized] [--BM <positive> --BN <positive> --BK <positive>]"
               << " [--TM <positive> --TN <positive>] [--runs <positive>] [--no-verify]\n";
     return 1;
 }
@@ -89,7 +90,8 @@ int main(int argc, char **argv)
     const bool use_smem = !std::strcmp(kernel, "smem");
     const bool use_block = !std::strcmp(kernel, "block");
     const bool use_bank_free = !std::strcmp(kernel, "bank-free");
-    const bool use_thread_tiled = use_block || use_bank_free;
+    const bool use_vectorized = !std::strcmp(kernel, "vectorized");
+    const bool use_thread_tiled = use_block || use_bank_free || use_vectorized;
     if (M == 0 || N == 0 || K == 0 || (!use_naive && !use_smem && !use_thread_tiled) ||
         ((use_smem || use_thread_tiled) && (BM == 0 || BN == 0 || BK == 0)) || (use_thread_tiled && (TM == 0 || TN == 0)))
         return usage(argv[0]);
@@ -126,6 +128,8 @@ int main(int argc, char **argv)
         launchBlockTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
     else if (use_bank_free)
         launchBankConflictFree(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
+    else if (use_vectorized)
+        launchVectorized(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
     else
         launch_naive(d_A, d_B, d_C, M, N, K);
     check(cudaGetLastError());
@@ -143,6 +147,8 @@ int main(int argc, char **argv)
             launchBlockTiled(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
         else if (use_bank_free)
             launchBankConflictFree(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
+        else if (use_vectorized)
+            launchVectorized(d_A, d_B, d_C, M, N, K, BM, BN, BK, TM, TN);
         else
             launch_naive(d_A, d_B, d_C, M, N, K);
     }
