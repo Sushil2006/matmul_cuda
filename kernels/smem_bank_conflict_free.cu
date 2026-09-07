@@ -28,8 +28,7 @@ __global__ void smem_bank_conflict_free_gemm(const float *A, const float *B, flo
     __shared__ float As[BM][BK];
     __shared__ float Bs[BK][BN];
 
-    // CHANGE 2: Spread each thread's TM x TN results across the block tile. For a fixed tn, consecutive threadIdx.x values now read consecutive
-    // B words instead of words TN apart, so they use distinct banks; repeated x values in another thread row read the same word by broadcast.
+    // CHANGE 2: Spread each thread's TM x TN results across the block tile. For a fixed tn, consecutive threadIdx.x values now read consecutive B words instead of words TN apart, so they use distinct banks; repeated x values in another thread row read the same word by broadcast.
     const int row = blockIdx.y * BM + threadIdx.y;
     const int col = blockIdx.x * BN + threadIdx.x;
     const int thread = threadIdx.y * THREADS_X + threadIdx.x;

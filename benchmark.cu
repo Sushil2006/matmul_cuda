@@ -43,7 +43,7 @@ static int usage(const char *program)
 {
     std::cerr << "usage: " << program << " --M <positive> --N <positive> --K <positive>"
               << " [--kernel naive|smem|block] [--BM <positive> --BN <positive> --BK <positive>]"
-              << " [--TM <positive> --TN <positive>] [--runs <positive>]\n";
+              << " [--TM <positive> --TN <positive>] [--runs <positive>] [--no-verify]\n";
     return 1;
 }
 
@@ -51,13 +51,22 @@ int main(int argc, char **argv)
 {
     int M = 0, N = 0, K = 0, BM = 0, BN = 0, BK = 0, TM = 0, TN = 0, runs = 3;
     const char *kernel = "naive";
-    for (int i = 1; i < argc; i += 2)
+    bool verify = true;
+    for (int i = 1; i < argc;)
     {
+        if (!std::strcmp(argv[i], "--no-verify"))
+        {
+            verify = false;
+            ++i;
+            continue;
+        }
+
         if (i + 1 == argc)
             return usage(argv[0]);
         if (!std::strcmp(argv[i], "--kernel"))
         {
             kernel = argv[i + 1];
+            i += 2;
             continue;
         }
 
@@ -73,6 +82,7 @@ int main(int argc, char **argv)
                                                      : nullptr;
         if (value == nullptr || !parse_positive(argv[i + 1], *value))
             return usage(argv[0]);
+        i += 2;
     }
     const bool use_naive = !std::strcmp(kernel, "naive");
     const bool use_smem = !std::strcmp(kernel, "smem");
@@ -136,26 +146,30 @@ int main(int argc, char **argv)
     float total_ms = 0.0f;
     check(cudaEventElapsedTime(&total_ms, start, stop));
 
-    cublasHandle_t cublas;
-    check(cublasCreate(&cublas));
-    check(cublasSetMathMode(cublas, CUBLAS_PEDANTIC_MATH));
-    const float alpha = 1.0f;
-    const float beta = 0.0f;
-
-    // cuBLAS is column-major: C^T = B^T * A^T matches our row-major C = A * B.
-    check(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, d_B, N, d_A, K, &beta, d_reference, N));
-    check(cudaMemcpy(C.data(), d_C, c_count * sizeof(float), cudaMemcpyDeviceToHost));
-    check(cudaMemcpy(reference.data(), d_reference, c_count * sizeof(float), cudaMemcpyDeviceToHost));
-
-    // Compare against the cuBLAS FP32 result on the host.
     float max_error = 0.0f;
     bool correct = true;
-    for (size_t index = 0; index < c_count; ++index)
+    if (verify)
     {
-        const float error = std::fabs(C[index] - reference[index]);
-        if (error > max_error)
-            max_error = error;
-        correct &= error <= 1e-3f * std::fmax(1.0f, std::fabs(reference[index]));
+        cublasHandle_t cublas;
+        check(cublasCreate(&cublas));
+        check(cublasSetMathMode(cublas, CUBLAS_PEDANTIC_MATH));
+        const float alpha = 1.0f;
+        const float beta = 0.0f;
+
+        // cuBLAS is column-major: C^T = B^T * A^T matches our row-major C = A * B.
+        check(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, d_B, N, d_A, K, &beta, d_reference, N));
+        check(cudaMemcpy(C.data(), d_C, c_count * sizeof(float), cudaMemcpyDeviceToHost));
+        check(cudaMemcpy(reference.data(), d_reference, c_count * sizeof(float), cudaMemcpyDeviceToHost));
+
+        // Compare against the cuBLAS FP32 result on the host.
+        for (size_t index = 0; index < c_count; ++index)
+        {
+            const float error = std::fabs(C[index] - reference[index]);
+            if (error > max_error)
+                max_error = error;
+            correct &= error <= 1e-3f * std::fmax(1.0f, std::fabs(reference[index]));
+        }
+        check(cublasDestroy(cublas));
     }
 
     const double time_ms = total_ms / runs;
@@ -163,11 +177,10 @@ int main(int argc, char **argv)
     std::cout << "kernel=" << kernel << " M=" << M << " N=" << N << " K=" << K
               << " BM=" << BM << " BN=" << BN << " BK=" << BK << " TM=" << TM << " TN=" << TN
               << " runs=" << runs << " time_ms=" << time_ms << " tflops=" << tflops
-              << " max_abs_error=" << max_error << " status=" << (correct ? "PASS" : "FAIL") << '\n';
+              << " max_abs_error=" << max_error << " status=" << (verify ? (correct ? "PASS" : "FAIL") : "SKIPPED") << '\n';
 
     check(cudaEventDestroy(start));
     check(cudaEventDestroy(stop));
-    check(cublasDestroy(cublas));
     check(cudaFree(d_A));
     check(cudaFree(d_B));
     check(cudaFree(d_C));
