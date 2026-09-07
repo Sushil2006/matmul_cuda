@@ -43,13 +43,13 @@ static int usage(const char *program)
 {
     std::cerr << "usage: " << program << " --M <positive> --N <positive> --K <positive>"
               << " [--kernel naive|smem|block] [--BM <positive> --BN <positive> --BK <positive>]"
-              << " [--TM <positive> --TN <positive>]\n";
+              << " [--TM <positive> --TN <positive>] [--runs <positive>]\n";
     return 1;
 }
 
 int main(int argc, char **argv)
 {
-    int M = 0, N = 0, K = 0, BM = 0, BN = 0, BK = 0, TM = 0, TN = 0;
+    int M = 0, N = 0, K = 0, BM = 0, BN = 0, BK = 0, TM = 0, TN = 0, runs = 3;
     const char *kernel = "naive";
     for (int i = 1; i < argc; i += 2)
     {
@@ -69,6 +69,7 @@ int main(int argc, char **argv)
                      : !std::strcmp(argv[i], "--BK") ? &BK
                      : !std::strcmp(argv[i], "--TM") ? &TM
                      : !std::strcmp(argv[i], "--TN") ? &TN
+                     : !std::strcmp(argv[i], "--runs") ? &runs
                                                      : nullptr;
         if (value == nullptr || !parse_positive(argv[i + 1], *value))
             return usage(argv[0]);
@@ -115,7 +116,6 @@ int main(int argc, char **argv)
     check(cudaGetLastError());
     check(cudaDeviceSynchronize());
 
-    constexpr int runs = 3;
     cudaEvent_t start, stop;
     check(cudaEventCreate(&start));
     check(cudaEventCreate(&stop));
@@ -162,7 +162,7 @@ int main(int argc, char **argv)
     const double tflops = 2.0 * M * N * K / (time_ms * 1.0e9);
     std::cout << "kernel=" << kernel << " M=" << M << " N=" << N << " K=" << K
               << " BM=" << BM << " BN=" << BN << " BK=" << BK << " TM=" << TM << " TN=" << TN
-              << " time_ms=" << time_ms << " tflops=" << tflops
+              << " runs=" << runs << " time_ms=" << time_ms << " tflops=" << tflops
               << " max_abs_error=" << max_error << " status=" << (correct ? "PASS" : "FAIL") << '\n';
 
     check(cudaEventDestroy(start));
